@@ -139,7 +139,7 @@ def add():
         jjtype = "kvm"  
      
     item = {}
-    item['monthstart'] = "1"
+    item['monthstart'] = 1
     item['location'] = jjloc
     item['type'] = jjtype
     item['name'] = jjname
@@ -263,13 +263,35 @@ def cmd():
         return
 
 
+SSLCERTS_PLACEHOLDER = [{"name": "placeholder", "domain": "https://localhost", "port": 443, "interval": 86400000, "callback": "https://localhost"}]
+
+def ensure_config_sections():
+    """确保 config.json 包含服务端所需的所有顶层字段，sslcerts 不能为空（镜像 bug）"""
+    changed = False
+    for key in ['servers', 'monitors', 'watchdog']:
+        if key not in jjs:
+            jjs[key] = []
+            changed = True
+    if 'sslcerts' not in jjs or len(jjs['sslcerts']) == 0:
+        jjs['sslcerts'] = SSLCERTS_PLACEHOLDER
+        changed = True
+    for s in jjs.get('servers', []):
+        if isinstance(s.get('monthstart'), str):
+            s['monthstart'] = int(s['monthstart'])
+            changed = True
+    if changed:
+        saveJJs()
+        print("已自动修正 config.json，等待服务重启")
+        restartSSS()
+
 if __name__ == '__main__':
     file_exists = os.path.exists(CONFIG_FILE)
-    if file_exists == False: 
+    if file_exists == False:
         print("请在当前目录创建config.json!")
         exit()
-    
+
     file = open(CONFIG_FILE,"r")
     jjs = json.load(file)
     file.close()
+    ensure_config_sections()
     cmd()

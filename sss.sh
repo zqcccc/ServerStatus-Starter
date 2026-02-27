@@ -101,7 +101,7 @@ install_dashboard(){
     wget --no-check-certificate ${GITHUB_RAW_URL}/Dockerfile >/dev/null 2>&1
     wget --no-check-certificate ${GITHUB_RAW_URL}/bot.py >/dev/null 2>&1
     wget --no-check-certificate ${GITHUB_RAW_URL}/_sss.py >/dev/null 2>&1
-    echo '{"servers":[]}' > config.json
+    echo '{"servers":[],"monitors":[],"sslcerts":[{"name":"placeholder","domain":"https://localhost","port":443,"interval":86400000,"callback":"https://localhost"}],"watchdog":[]}' > config.json
 
     modify_bot_config "$@"
 
