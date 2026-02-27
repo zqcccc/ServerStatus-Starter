@@ -87,26 +87,50 @@ modify_bot_config(){
     sed -i "s/tg_bot_token/${tg_bot_token}/" docker-compose.yml
 }
 
-install_dashboard(){ 
-    
+install_dashboard(){
+
     install_docker
 
-    if [  "$(docker ps -q -f name=bot4sss)" ]; then
+    if [ "$(docker ps -q -f name=bot4sss)" ]; then
         return 0
     fi
 
     echo -e "> 安装面板"
-    
+
     wget --no-check-certificate ${GITHUB_RAW_URL}/docker-compose.yml >/dev/null 2>&1
     wget --no-check-certificate ${GITHUB_RAW_URL}/Dockerfile >/dev/null 2>&1
     wget --no-check-certificate ${GITHUB_RAW_URL}/bot.py >/dev/null 2>&1
     wget --no-check-certificate ${GITHUB_RAW_URL}/_sss.py >/dev/null 2>&1
     echo '{"servers":[]}' > config.json
-    
+
     modify_bot_config "$@"
 
     echo -e "> 启动面板"
     (docker-compose up -d)  >/dev/null 2>&1
+}
+
+update_scripts(){
+    echo -e "> 更新管理脚本"
+
+    wget --no-check-certificate -O _sss.py.new ${GITHUB_RAW_URL}/_sss.py >/dev/null 2>&1
+    if [[ $? == 0 ]]; then
+        mv _sss.py.new _sss.py
+        echo -e "${green}_sss.py${plain} 已更新"
+    else
+        rm -f _sss.py.new
+        echo -e "${yellow}_sss.py 更新失败，将使用本地版本${plain}"
+    fi
+
+    wget --no-check-certificate -O bot.py.new ${GITHUB_RAW_URL}/bot.py >/dev/null 2>&1
+    if [[ $? == 0 ]]; then
+        mv bot.py.new bot.py
+        echo -e "> 重新构建 bot 容器"
+        (docker-compose up -d --build bot) >/dev/null 2>&1
+        echo -e "${green}bot.py${plain} 已更新并重启"
+    else
+        rm -f bot.py.new
+        echo -e "${yellow}bot.py 更新失败，将使用本地版本${plain}"
+    fi
 }
 
 nodes_mgr(){
@@ -116,4 +140,5 @@ nodes_mgr(){
 
 pre_check
 install_dashboard "$@"
+update_scripts
 nodes_mgr
