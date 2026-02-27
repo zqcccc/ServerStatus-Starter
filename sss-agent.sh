@@ -94,21 +94,39 @@ uninstall_agent() {
     systemctl daemon-reload
 }
 
+update_agent() {
+    if [ ! -f "$SSS_AGENT_PATH/client-linux.py" ]; then
+        echo -e "${red}未检测到已安装的Agent，请先安装${plain}"
+        return 1
+    fi
+
+    echo -e "> 更新客户端脚本"
+    wget --no-check-certificate -qO "${SSS_AGENT_PATH}/client-linux.py.new" https://raw.githubusercontent.com/cppla/ServerStatus/master/clients/client-linux.py
+    if [[ $? != 0 ]]; then
+        rm -f "${SSS_AGENT_PATH}/client-linux.py.new"
+        echo -e "${red}下载失败${plain}"
+        return 1
+    fi
+    mv "${SSS_AGENT_PATH}/client-linux.py.new" "${SSS_AGENT_PATH}/client-linux.py"
+    systemctl restart sss-agent
+    echo -e "${green}客户端已更新并重启${plain}"
+}
+
 show_menu() {
     echo -e "
     ${green}Server Status监控管理脚本${plain}
     --- https://github.com/zqcccc/ServerStatus-Starter ---
     ${green}1.${plain}  安装监控Agent
     ${green}2.${plain}  卸载Agent
+    ${green}3.${plain}  更新客户端脚本
     ${green}0.${plain}  退出脚本
     "
-    echo && read -ep "请输入选择 [0-2]: " num
+    echo && read -ep "请输入选择 [0-3]: " num
 
     case "${num}" in
     0)
         exit 0
         ;;
- 
     1)
         install_agent
         ;;
@@ -116,8 +134,11 @@ show_menu() {
         uninstall_agent
         echo -e "${green}卸载Agent完成${plain}"
         ;;
+    3)
+        update_agent
+        ;;
     *)
-        echo -e "${red}请输入正确的数字 [0-2]${plain}"
+        echo -e "${red}请输入正确的数字 [0-3]${plain}"
         ;;
     esac
 }
