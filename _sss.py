@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Create by : https://github.com/lidalao/ServerStatus
+# Create by : https://github.com/zqcccc/ServerStatus-Starter
 # 版本：0.0.1, 支持Python版本：2.7 to 3.9
 # 支持操作系统： Linux, OSX, FreeBSD, OpenBSD and NetBSD, both 32-bit and 64-bit architectures
 
@@ -13,7 +13,7 @@ import subprocess
 import uuid
 
 CONFIG_FILE = "config.json"
-GITHUB_RAW_URL = "https://raw.githubusercontent.com/lidalao/ServerStatus/master"
+GITHUB_RAW_URL = "https://raw.githubusercontent.com/zqcccc/ServerStatus-Starter/master"
 IP_URL = "https://api.ipify.org"
 
 jjs = {}
@@ -87,6 +87,32 @@ def _show():
 
 def show():
     _show()
+    if len(jjs['servers']) == 0:
+        _back()
+        return
+
+    print('>>>请输入要查看详情的节点标号（直接回车返回）：')
+    idx = input()
+    if idx == "":
+        _back()
+        return
+    if not idx.isnumeric() or len(jjs['servers']) <= int(idx):
+        print('无效输入')
+        _back()
+        return
+
+    jj = jjs['servers'][int(idx)]
+    print("\n--- 节点详情 ---")
+    print("名称      : " + jj.get('name', ''))
+    print("位置      : " + jj.get('location', ''))
+    print("类型      : " + jj.get('type', ''))
+    print("Host      : " + jj.get('host', ''))
+    print("用户名    : " + jj.get('username', ''))
+    print("密码      : " + jj.get('password', ''))
+    print("流量起始日: " + str(jj.get('monthstart', '')))
+    print("----------------")
+    print("\n>>> Agent 安装命令（在目标节点以 root 执行）：")
+    how2agent(jj['username'], jj['password'])
     _back()
 
 def _back():
@@ -211,7 +237,7 @@ def remove():
 def cmd():
     print("\n")
     print('- - - 欢迎使用最简洁的探针: Server Status - - -')
-    print('详细教程请参考：https://lidalao.com/archives/87')
+    print('详细文档请参考：https://github.com/zqcccc/ServerStatus-Starter')
     print("\n")
     _show()
     print("\n")

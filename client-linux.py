@@ -1,27 +1,23 @@
 #!/usr/bin/env python3
 # coding: utf-8
-# Create by : https://github.com/cppla/ServerStatus
-# 版本：1.0.2, 支持Python版本：2.7 to 3.9
+# Update by : https://github.com/cppla/ServerStatus, Update date: 20250902
+# 版本：1.1.0, 支持Python版本：3.6+
 # 支持操作系统： Linux, OSX, FreeBSD, OpenBSD and NetBSD, both 32-bit and 64-bit architectures
 # 说明: 默认情况下修改server和user就可以了。丢包率监测方向可以自定义，例如：CU = "www.facebook.com"。
-#
-# 20211117: 移除tupd信息 (Update by: https://github.com/lidalao/ServerStatus)
-#
 
 SERVER = "127.0.0.1"
 USER = "s01"
 
 
-
-PORT = 35601
 PASSWORD = "USER_DEFAULT_PASSWORD"
-INTERVAL = 1
-PROBEPORT = 80
-PROBE_PROTOCOL_PREFER = "ipv4"  # ipv4, ipv6
-PING_PACKET_HISTORY_LEN = 100
+PORT = 35601
 CU = "cu.tz.cloudcpp.com"
 CT = "ct.tz.cloudcpp.com"
 CM = "cm.tz.cloudcpp.com"
+PROBEPORT = 80
+PROBE_PROTOCOL_PREFER = "ipv4"  # ipv4, ipv6
+PING_PACKET_HISTORY_LEN = 100
+INTERVAL = 1
 
 import socket
 import time
@@ -33,10 +29,36 @@ import json
 import errno
 import subprocess
 import threading
-try:
-    from queue import Queue     # python3
-except ImportError:
-    from Queue import Queue     # python2
+import platform
+from queue import Queue
+
+def _env_str(name, default):
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    return value
+
+def _env_int(name, default):
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+# Allow docker env overrides
+SERVER = _env_str("SERVER", SERVER)
+USER = _env_str("USER", USER)
+PASSWORD = _env_str("PASSWORD", PASSWORD)
+PORT = _env_int("PORT", PORT)
+INTERVAL = _env_int("INTERVAL", INTERVAL)
+PROBEPORT = _env_int("PROBEPORT", PROBEPORT)
+PROBE_PROTOCOL_PREFER = _env_str("PROBE_PROTOCOL_PREFER", PROBE_PROTOCOL_PREFER)
+PING_PACKET_HISTORY_LEN = _env_int("PING_PACKET_HISTORY_LEN", PING_PACKET_HISTORY_LEN)
+CU = _env_str("CU", CU)
+CT = _env_str("CT", CT)
+CM = _env_str("CM", CM)
 
 def get_uptime():
     with open('/proc/uptime', 'r') as f:
@@ -93,7 +115,7 @@ def liuliang():
     NET_OUT = 0
     with open('/proc/net/dev') as f:
         for line in f.readlines():
-            netinfo = re.findall('([^\s]+):[\s]{0,}(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)', line)
+            netinfo = re.findall(r'([^\s]+):[\s]{0,}(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)', line)
             if netinfo:
                 if netinfo[0][0] == 'lo' or 'tun' in netinfo[0][0] \
                         or 'docker' in netinfo[0][0] or 'veth' in netinfo[0][0] \
@@ -111,8 +133,6 @@ def tupd():
     tcp, udp, process, thread count: for view ddcc attack , then send warning
     :return:
     '''
-    return 0,0,0,0
-    
     s = subprocess.check_output("ss -t|wc -l", shell=True)
     t = int(s[:-1])-1
     s = subprocess.check_output("ss -u|wc -l", shell=True)
@@ -152,22 +172,28 @@ netSpeed = {
     'avgrx': 0,
     'avgtx': 0
 }
+diskIO = {
+    'read': 0,
+    'write': 0
+}
+monitorServer = {}
 
 def _ping_thread(host, mark, port):
     lostPacket = 0
     packet_queue = Queue(maxsize=PING_PACKET_HISTORY_LEN)
 
-    IP = host
-    if host.count(':') < 1:     # if not plain ipv6 address, means ipv4 address or hostname
-        try:
-            if PROBE_PROTOCOL_PREFER == 'ipv4':
-                IP = socket.getaddrinfo(host, None, socket.AF_INET)[0][4][0]
-            else:
-                IP = socket.getaddrinfo(host, None, socket.AF_INET6)[0][4][0]
-        except Exception:
+    while True:
+        # flush dns , every time.
+        IP = host
+        if host.count(':') < 1:  # if not plain ipv6 address, means ipv4 address or hostname
+            try:
+                if PROBE_PROTOCOL_PREFER == 'ipv4':
+                    IP = socket.getaddrinfo(host, None, socket.AF_INET)[0][4][0]
+                else:
+                    IP = socket.getaddrinfo(host, None, socket.AF_INET6)[0][4][0]
+            except Exception:
                 pass
 
-    while True:
         if packet_queue.full():
             if packet_queue.get() == 0:
                 lostPacket -= 1
@@ -215,7 +241,55 @@ def _net_speed():
             netSpeed["avgtx"] = avgtx
         time.sleep(INTERVAL)
 
-def get_realtime_date():
+def _disk_io():
+    while True:
+        snapshot_first = {}
+        snapshot_second = {}
+        snapshot_read = 0
+        snapshot_write = 0
+        pid_snapshot = [str(i) for i in os.listdir("/proc") if i.isdigit() is True]
+        for pid in pid_snapshot:
+            try:
+                with open("/proc/{}/io".format(pid)) as f:
+                    pid_io = {}
+                    for line in f.readlines():
+                        if "read_bytes" in line:
+                            pid_io["read"] = int(line.split("read_bytes:")[-1].strip())
+                        elif "write_bytes" in line and "cancelled_write_bytes" not in line:
+                            pid_io["write"] = int(line.split("write_bytes:")[-1].strip())
+                    pid_io["name"] = open("/proc/{}/comm".format(pid), "r").read().strip()
+                    snapshot_first[pid] = pid_io
+            except:
+                if pid in snapshot_first:
+                    snapshot_first.pop(pid)
+
+        time.sleep(INTERVAL)
+
+        for pid in pid_snapshot:
+            try:
+                with open("/proc/{}/io".format(pid)) as f:
+                    pid_io = {}
+                    for line in f.readlines():
+                        if "read_bytes" in line:
+                            pid_io["read"] = int(line.split("read_bytes:")[-1].strip())
+                        elif "write_bytes" in line and "cancelled_write_bytes" not in line:
+                            pid_io["write"] = int(line.split("write_bytes:")[-1].strip())
+                    pid_io["name"] = open("/proc/{}/comm".format(pid), "r").read().strip()
+                    snapshot_second[pid] = pid_io
+            except:
+                if pid in snapshot_first:
+                    snapshot_first.pop(pid)
+                if pid in snapshot_second:
+                    snapshot_second.pop(pid)
+
+        for k, v in snapshot_first.items():
+            if snapshot_first[k]["name"] == snapshot_second[k]["name"] and snapshot_first[k]["name"] != "bash":
+                snapshot_read += (snapshot_second[k]["read"] - snapshot_first[k]["read"])
+                snapshot_write += (snapshot_second[k]["write"] - snapshot_first[k]["write"])
+        diskIO["read"] = snapshot_read
+        diskIO["write"] = snapshot_write
+
+def get_realtime_data():
     t1 = threading.Thread(
         target=_ping_thread,
         kwargs={
@@ -243,21 +317,75 @@ def get_realtime_date():
     t4 = threading.Thread(
         target=_net_speed,
     )
-    t1.setDaemon(True)
-    t2.setDaemon(True)
-    t3.setDaemon(True)
-    t4.setDaemon(True)
-    t1.start()
-    t2.start()
-    t3.start()
-    t4.start()
+    t5 = threading.Thread(
+        target=_disk_io,
+    )
+    for ti in [t1, t2, t3, t4, t5]:
+        ti.daemon = True
+        ti.start()
+
+
+def _monitor_thread(name, host, interval, type):
+    while True:
+        if name not in monitorServer.keys():
+            break
+        try:
+            if type == 'http':
+                addr = str(host).replace('http://','')
+                addr = addr.split('/',1)[0]
+                port = 80
+                if ':' in addr and not addr.startswith('['):
+                    a, p = addr.rsplit(':',1)
+                    if p.isdigit():
+                        addr, port = a, int(p)
+            elif type == 'https':
+                addr = str(host).replace('https://','')
+                addr = addr.split('/',1)[0]
+                port = 443
+                if ':' in addr and not addr.startswith('['):
+                    a, p = addr.rsplit(':',1)
+                    if p.isdigit():
+                        addr, port = a, int(p)
+            elif type == 'tcp':
+                addr = str(host)
+                if addr.startswith('[') and ']' in addr:
+                    a = addr[1:addr.index(']')]
+                    rest = addr[addr.index(']')+1:]
+                    if rest.startswith(':') and rest[1:].isdigit():
+                        addr, port = a, int(rest[1:])
+                    else:
+                        raise Exception('bad tcp target')
+                else:
+                    a, p = addr.rsplit(':',1)
+                    addr, port = a, int(p)
+            else:
+                time.sleep(interval)
+                continue
+
+            IP = addr
+            if addr.count(':') < 1:
+                try:
+                    if PROBE_PROTOCOL_PREFER == 'ipv4':
+                        IP = socket.getaddrinfo(addr, None, socket.AF_INET)[0][4][0]
+                    else:
+                        IP = socket.getaddrinfo(addr, None, socket.AF_INET6)[0][4][0]
+                except Exception:
+                    pass
+
+            try:
+                b = timeit.default_timer()
+                socket.create_connection((IP, port), timeout=1).close()
+                monitorServer[name]["latency"] = int((timeit.default_timer() - b) * 1000)
+            except socket.error as error:
+                if getattr(error, 'errno', None) == errno.ECONNREFUSED:
+                    monitorServer[name]["latency"] = int((timeit.default_timer() - b) * 1000)
+                else:
+                    monitorServer[name]["latency"] = 0
+        except Exception:
+            monitorServer[name]["latency"] = 0
+        time.sleep(interval)
 
 def byte_str(object):
-    '''
-    bytes to str, str to bytes
-    :param object:
-    :return:
-    '''
     if isinstance(object, str):
         return object.encode(encoding="utf-8")
     elif isinstance(object, bytes):
@@ -278,7 +406,7 @@ if __name__ == '__main__':
         elif 'INTERVAL' in argc:
             INTERVAL = int(argc.split('INTERVAL=')[-1])
     socket.setdefaulttimeout(30)
-    get_realtime_date()
+    get_realtime_data()
     while True:
         try:
             print("Connecting...")
@@ -298,6 +426,26 @@ if __name__ == '__main__':
             if data.find("You are connecting via") < 0:
                 data = byte_str(s.recv(1024))
                 print(data)
+                monitorServer.clear()
+                for i in data.split('\n'):
+                    if "monitor" in i and "type" in i and "{" in i and "}" in i:
+                        jdata = json.loads(i[i.find("{"):i.find("}")+1])
+                        monitorServer[jdata.get("name")] = {
+                            "type": jdata.get("type"),
+                            "host": jdata.get("host"),
+                            "latency": 0
+                        }
+                        t = threading.Thread(
+                            target=_monitor_thread,
+                            kwargs={
+                                'name': jdata.get("name"),
+                                'host': jdata.get("host"),
+                                'interval': jdata.get("interval"),
+                                'type': jdata.get("type")
+                            }
+                        )
+                        t.daemon = True
+                        t.start()
 
             timer = 0
             check_ip = 0
@@ -316,7 +464,6 @@ if __name__ == '__main__':
                 Load_1, Load_5, Load_15 = os.getloadavg()
                 MemoryTotal, MemoryUsed, SwapTotal, SwapFree = get_memory()
                 HDDTotal, HDDUsed = get_hdd()
-
                 array = {}
                 if not timer:
                     array['online' + str(check_ip)] = get_network(check_ip)
@@ -339,8 +486,6 @@ if __name__ == '__main__':
                 array['network_tx'] = netSpeed.get("nettx")
                 array['network_in'] = NET_IN
                 array['network_out'] = NET_OUT
-                # todo：兼容旧版本，下个版本删除ip_status
-                array['ip_status'] = True
                 array['ping_10010'] = lostRate.get('10010') * 100
                 array['ping_189'] = lostRate.get('189') * 100
                 array['ping_10086'] = lostRate.get('10086') * 100
@@ -348,16 +493,55 @@ if __name__ == '__main__':
                 array['time_189'] = pingTime.get('189')
                 array['time_10086'] = pingTime.get('10086')
                 array['tcp'], array['udp'], array['process'], array['thread'] = tupd()
-
+                array['io_read'] = diskIO.get("read")
+                array['io_write'] = diskIO.get("write")
+                try:
+                    sysname = platform.system().lower()
+                    if sysname.startswith('linux'):
+                        os_name = 'linux'
+                        try:
+                            with open('/etc/os-release') as f:
+                                for line in f:
+                                    if line.startswith('ID='):
+                                        val = line.strip().split('=',1)[1].strip().strip('"')
+                                        if val: os_name = val
+                                        break
+                        except Exception:
+                            pass
+                    elif sysname.startswith('darwin'):
+                        os_name = 'darwin'
+                    elif sysname.startswith('freebsd'):
+                        os_name = 'freebsd'
+                    elif sysname.startswith('openbsd'):
+                        os_name = 'openbsd'
+                    elif sysname.startswith('netbsd'):
+                        os_name = 'netbsd'
+                    else:
+                        os_name = sysname or 'unknown'
+                except Exception:
+                    os_name = 'unknown'
+                array['os'] = os_name
+                items = []
+                for _n, st in monitorServer.items():
+                    key = str(_n)
+                    try:
+                        ms = int(st.get('latency') or 0)
+                    except Exception:
+                        ms = 0
+                    items.append((key, max(0, ms)))
+                items.sort(key=lambda x: x[0])
+                array['custom'] = ';'.join(f"{k}={v}" for k,v in items)
                 s.send(byte_str("update " + json.dumps(array) + "\n"))
         except KeyboardInterrupt:
             raise
         except socket.error:
+            monitorServer.clear()
             print("Disconnected...")
             if 's' in locals().keys():
                 del s
             time.sleep(3)
         except Exception as e:
+            monitorServer.clear()
             print("Caught Exception:", e)
             if 's' in locals().keys():
                 del s

@@ -4,10 +4,10 @@
 #   System Required: CentOS 7+ / Debian 8+ / Ubuntu 16+ /
 #     Arch 未测试
 #   Description: Server Status 监控安装脚本
-#   Github: https://github.com/lidalao/ServerStatus
+#   Github: https://github.com/zqcccc/ServerStatus-Starter
 #========================================================
 
-GITHUB_RAW_URL="https://raw.githubusercontent.com/lidalao/ServerStatus/master"
+GITHUB_RAW_URL="https://raw.githubusercontent.com/zqcccc/ServerStatus-Starter/master"
 
 red='\033[0;31m'
 green='\033[0;32m'

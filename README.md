@@ -1,31 +1,136 @@
-# 介绍
-项目基于cppla版本ServerStatus， 增加如下功能：
+# ServerStatus-Starter
 
-- 更方便的节点管理, 支持增删改查
-- 上下线通知（telegram）
-- Agent机器安装脚本改为systemd， 支持开机自启
+基于 [cppla/ServerStatus](https://github.com/cppla/ServerStatus) 的快速部署工具，在原版基础上增加了：
 
->由于未改动cppla版的任何代码，所以，我愿意把这个项目称为ServerStatus的小插件, 理论上它可以为任何版本的ServerStatus服务
+- 节点管理交互式 CLI（增删改查）
+- Telegram 上下线通知
+- Agent 使用 systemd 管理，支持开机自启
 
+---
 
-# 安装
-在**服务端**复制以下命令，一键到底。请记得替换成你自己的YOUR_TG_CHAT_ID和YOUR_TG_BOT_TOKEN。
+## 前置要求
 
-其中，Bot token可以通过@BotFather创建机器人获取， Chat id可以通过@getuserID获取。
+服务端机器需要：
+
+- Docker
+- Docker Compose
+- Python 3
+- root 权限
+
+---
+
+## 一、服务端部署（一键）
+
+在**服务端**执行以下命令，将 `YOUR_TG_CHAT_ID` 和 `YOUR_TG_BOT_TOKEN` 替换成你自己的值：
+
+```bash
+mkdir sss && cd sss \
+  && wget --no-check-certificate https://raw.githubusercontent.com/zqcccc/ServerStatus-Starter/master/sss.sh \
+  && chmod +x sss.sh \
+  && sudo ./sss.sh YOUR_TG_CHAT_ID YOUR_TG_BOT_TOKEN
+```
+
+> **Telegram Bot 获取方式**
+> - Bot Token：与 [@BotFather](https://t.me/BotFather) 对话创建机器人获取
+> - Chat ID：与 [@userinfobot](https://t.me/userinfobot) 对话获取
+
+安装完成后：
+- 面板地址：`http://<服务端IP>:8081`
+- 客户端上报端口：`35601`
+
+---
+
+## 二、节点管理
+
+部署完成后会自动进入节点管理 CLI，后续也可以在 `sss` 目录下随时运行：
+
+```bash
+cd sss && python3 _sss.py
+```
+
+菜单操作：
 
 ```
-mkdir sss && cd sss && wget --no-check-certificate https://raw.githubusercontent.com/lidalao/ServerStatus/master/sss.sh && chmod +x ./sss.sh && sudo ./sss.sh YOUR_TG_CHAT_ID YOUR_TG_BOT_TOKEN
+1. 查看  —— 列出所有节点
+2. 添加  —— 添加新节点，添加后会输出该节点的 Agent 安装命令
+3. 删除  —— 删除节点
+4. 更新  —— 修改节点名称/位置/类型等信息
+0. 退出
+```
+
+添加节点后，CLI 会自动输出一条安装命令，复制到对应节点机器上执行即可。
+
+---
+
+## 三、节点安装 Agent
+
+在**需要监控的节点**上以 root 执行（命令由第二步的 CLI 生成）：
+
+```bash
+curl -L https://raw.githubusercontent.com/zqcccc/ServerStatus-Starter/master/sss-agent.sh \
+  -o sss-agent.sh && chmod +x sss-agent.sh \
+  && sudo ./sss-agent.sh <服务端IP> <username> <password>
+```
+
+Agent 通过 systemd 管理，安装后自动启动并开机自启。
+
+常用管理命令：
+
+```bash
+# 查看运行状态
+systemctl status sss-agent
+
+# 查看日志
+journalctl -u sss-agent -f
+
+# 重启
+systemctl restart sss-agent
+
+# 卸载
+curl -L https://raw.githubusercontent.com/zqcccc/ServerStatus-Starter/master/sss-agent.sh \
+  -o sss-agent.sh && chmod +x sss-agent.sh && sudo ./sss-agent.sh
+# 然后选择 2. 卸载Agent
+```
+
+---
+
+## 四、服务端管理
+
+所有命令在 `sss` 目录下执行：
+
+```bash
+# 查看运行状态
+docker-compose ps
+
+# 查看服务日志
+docker-compose logs -f
+
+# 重启服务
+docker-compose restart
+
+# 停止服务
+docker-compose down
+
+# 更新镜像（升级服务端）
+docker-compose pull && docker-compose up -d
+```
+
+---
+
+## 目录结构
 
 ```
-安装成功后，web服务地址：http://ip:8081
+sss/
+├── docker-compose.yml   # Docker 编排配置
+├── Dockerfile           # Telegram bot 镜像
+├── config.json          # 节点配置（自动生成和维护）
+├── json/                # 面板数据输出目录（自动生成）
+├── bot.py               # Telegram 通知服务
+└── _sss.py              # 节点管理 CLI
+```
 
-更多信息请移步 https://lidalao.com/archives/87  +1ip
+---
 
-挺好用的？送作者一杯可乐？->
- [<img src="https://user-images.githubusercontent.com/52455330/139071980-91302a8a-37b1-4196-803e-f91b1de2ee5b.gif" width="60" height="40" />](https://shop.lidalao.com/buy/4)
+## 参考
 
-
-
-# 参考
-- https://github.com/cppla/ServerStatus
-- https://github.com/naiba/nezha
+- [cppla/ServerStatus](https://github.com/cppla/ServerStatus)
