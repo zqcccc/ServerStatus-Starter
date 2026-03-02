@@ -38,6 +38,8 @@ mkdir sss && cd sss \
 - 面板地址：`http://<服务端IP>:8081`
 - 客户端上报端口：`35601`
 
+> **注意**：需要确保服务端防火墙放行了 8081（Web 面板）和 35601（客户端上报）端口，详见 [防火墙配置](#六防火墙配置)。
+
 ---
 
 ## 二、更新管理脚本
@@ -129,6 +131,67 @@ docker-compose down
 
 # 更新镜像（升级服务端）
 docker-compose pull && docker-compose up -d
+```
+
+---
+
+## 六、防火墙配置
+
+客户端需要能访问服务端的 **35601** 端口（TCP）。如果节点连接超时，按以下步骤排查。
+
+### 验证端口连通性
+
+从节点机器测试：
+
+```bash
+python3 -uc "import socket;s=socket.create_connection(('<服务端IP>',35601),5);print(s.recv(1024));s.close()"
+```
+
+看到 `Authentication required` 表示端口通了，超时则需要配置防火墙。
+
+### 通用 Linux（iptables）
+
+```bash
+# 放行入站
+sudo iptables -I INPUT -p tcp --dport 35601 -j ACCEPT
+
+# 放行 Docker 转发（FORWARD 默认策略为 DROP 时必须加）
+sudo iptables -I FORWARD -p tcp --dport 35601 -j ACCEPT
+
+# Docker 返回流量放行
+BRIDGE=$(docker network inspect sss_default -f '{{(index .Options "com.docker.network.bridge.name")}}' 2>/dev/null || docker network ls --filter name=sss -q | head -1 | xargs -I{} docker network inspect {} -f 'br-{{.Id}}' | cut -c1-15)
+sudo iptables -I FORWARD -o "$BRIDGE" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+sudo iptables -I FORWARD -i "$BRIDGE" -j ACCEPT
+
+# 持久化
+sudo netfilter-persistent save
+```
+
+> 如果 `netfilter-persistent` 未安装：`sudo apt install -y netfilter-persistent`
+
+### Oracle Cloud
+
+Oracle Cloud 实例需要**两层**都放行：
+
+1. **OS 防火墙**：执行上面的 iptables 命令
+
+2. **VCN 安全列表**：Oracle Cloud 控制台 → Networking → Virtual Cloud Networks → 你的 VCN → Security Lists → Add Ingress Rules：
+   - Source CIDR: `0.0.0.0/0`
+   - IP Protocol: TCP
+   - Destination Port Range: `35601`
+
+3. **如果以上都配了还是不通**，重启 Docker 让它重建完整的转发规则：
+   ```bash
+   sudo systemctl restart docker && cd sss && docker-compose up -d
+   ```
+
+### 同机部署 Agent
+
+如果服务端和 Agent 在同一台机器上，Agent 的 SERVER 地址应使用 `127.0.0.1` 而不是公网 IP，避免绕经防火墙：
+
+```bash
+sudo sed -i 's/SERVER=[^ ]*/SERVER=127.0.0.1/' /etc/systemd/system/sss-agent.service
+sudo systemctl daemon-reload && sudo systemctl restart sss-agent
 ```
 
 ---
